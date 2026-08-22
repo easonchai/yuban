@@ -62,7 +62,7 @@ export default function Welcome() {
         setTranscribing(true);
         try {
           const blob = new Blob(chunksRef.current, { type: rec.mimeType || "audio/webm" });
-          const r = await fetch("/api/stt", {
+          const r = await fetch("/api/stt?lang=en", {
             method: "POST",
             credentials: "same-origin",
             headers: { "content-type": blob.type || "audio/webm" },

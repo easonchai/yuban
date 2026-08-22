@@ -248,7 +248,8 @@ api.post(
     if (!sttAvailable()) return void res.json({ text: null });
     const mime = req.headers["content-type"] ?? "audio/webm";
     const ext = mime.includes("mp4") ? "m4a" : mime.includes("ogg") ? "ogg" : mime.includes("mpeg") ? "mp3" : "webm";
-    const text = await transcribe(req.body as Buffer, `voice.${ext}`);
+    const lang = req.query.lang === "en" ? "en" : req.query.lang === "zh" ? "zh" : undefined;
+    const text = await transcribe(req.body as Buffer, `voice.${ext}`, lang);
     res.json({ text });
   }),
 );

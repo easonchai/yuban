@@ -6,7 +6,11 @@ export function sttAvailable(): boolean {
   return !!GROQ_KEY;
 }
 
-export async function transcribe(audio: Buffer, filename = "voice.ogg"): Promise<string | null> {
+export async function transcribe(
+  audio: Buffer,
+  filename = "voice.ogg",
+  language?: "en" | "zh",
+): Promise<string | null> {
   if (!GROQ_KEY) return null;
   // Docker NAT occasionally times out the first connect to a CDN edge;
   // one retry rescues it, so a learner's voice note never fails on a blip.
@@ -15,6 +19,15 @@ export async function transcribe(audio: Buffer, filename = "voice.ogg"): Promise
       const form = new FormData();
       form.append("file", new Blob([new Uint8Array(audio)]), filename);
       form.append("model", "whisper-large-v3");
+      if (language) {
+        // pinned (e.g. onboarding answers are English): stops Whisper
+        // mis-detecting Malaysian-accented English as Malay
+        form.append("language", language);
+      } else {
+        // mixed chat/voice-note path must stay bilingual — bias detection
+        // toward the two languages learners actually use here
+        form.append("prompt", "A Mandarin learner speaking English, Mandarin Chinese (中文), or a mix of both.");
+      }
       const r = await fetch("https://api.groq.com/openai/v1/audio/transcriptions", {
         method: "POST",
         headers: { authorization: `Bearer ${GROQ_KEY}` },
