@@ -1,0 +1,74 @@
+generator client {
+  provider = "prisma-client-js"
+  // native = dev machine; the linux targets cover the docker runtime (slim
+  // images detect openssl 3) on arm64 and a future x86_64 deploy.
+  binaryTargets = ["native", "linux-arm64-openssl-3.0.x", "debian-openssl-3.0.x"]
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model Learner {
+  id          BigInt    @id // Telegram user id
+  username    String    @default("")
+  mode        String    @default("casual") // casual | study
+  pingsPerDay Int       @default(2)
+  nextPingAt  DateTime?
+  expiry      DateTime? // null = never active (admin bypasses in code)
+  profileMd   String    @default("") // model-owned About/Level/Contexts/Style
+  streak      Int       @default(0)
+  lastActive  DateTime? // last day (UTC date) a web activity was completed
+  createdAt   DateTime  @default(now())
+
+  vocab    Vocab[]
+  messages Message[]
+  sessions WebSession[]
+}
+
+model Vocab {
+  id         Int      @id @default(autoincrement())
+  learnerId  BigInt
+  word       String
+  pinyin     String
+  gloss      String
+  context    String   @default("general")
+  strength   Int      @default(1)
+  introduced DateTime @default(now())
+  lastSeen   DateTime @default(now())
+
+  learner Learner @relation(fields: [learnerId], references: [id], onDelete: Cascade)
+
+  @@unique([learnerId, word])
+  @@index([learnerId, strength, lastSeen])
+}
+
+model Message {
+  id        Int      @id @default(autoincrement())
+  learnerId BigInt
+  role      String // user | assistant
+  content   String
+  ts        DateTime @default(now())
+
+  learner Learner @relation(fields: [learnerId], references: [id], onDelete: Cascade)
+
+  @@index([learnerId, id])
+}
+
+model Code {
+  code      String    @id
+  createdAt DateTime  @default(now())
+  usedBy    BigInt?
+  usedAt    DateTime?
+}
+
+model WebSession {
+  token     String   @id
+  learnerId BigInt? // null = web-first link session awaiting a Telegram claim
+  createdAt DateTime @default(now())
+  expiresAt DateTime
+  consumed  Boolean  @default(false) // magic link consumed / link claimed -> cookie issued
+
+  learner Learner? @relation(fields: [learnerId], references: [id], onDelete: Cascade)
+}

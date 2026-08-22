@@ -1,0 +1,12 @@
+node_modules/
+.next/
+dist/
+.env
+.env.*
+!.env.example
+*.tsbuildinfo
+*.log
+tts-cache/
+.playwright-mcp-shots/
+scripts/import-python.mts
+.DS_Store
