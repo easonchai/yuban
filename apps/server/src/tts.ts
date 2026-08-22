@@ -11,10 +11,13 @@ import { REPO_ROOT } from "./util.js";
 const CACHE_DIR = process.env.TTS_CACHE_DIR ?? path.join(REPO_ROOT, "tts-cache");
 const VOICE = process.env.TTS_VOICE ?? "zh-CN-XiaoxiaoNeural";
 const ELEVEN_KEY = process.env.ELEVENLABS_API_KEY ?? "";
-const ELEVEN_VOICE = process.env.ELEVENLABS_VOICE ?? "21m00Tcm4TlvDq8ikWAM";
-// Edge's Xiaoxiao is a NATIVE Mandarin voice; ElevenLabs free-tier voices
-// speak accented Chinese. TTS_PROVIDER=edge keeps the key configured but
-// silent until a paid plan unlocks native library voices.
+// Sarah — a free-tier default voice; with eleven_v3 her Mandarin passes.
+const ELEVEN_VOICE = process.env.ELEVENLABS_VOICE ?? "EXAVITQu4vr4xnSDxMaL";
+const ELEVEN_MODEL = process.env.ELEVENLABS_MODEL ?? "eleven_v3";
+// ElevenLabs is OPTIONAL. With a key we try it first; on ANY failure (no
+// key, monthly quota burned, network down) we fall back to Edge's Xiaoxiao,
+// a native Mandarin voice that is free forever. TTS_PROVIDER=edge skips
+// ElevenLabs entirely even when a key exists.
 const USE_ELEVEN = !!ELEVEN_KEY && process.env.TTS_PROVIDER !== "edge";
 
 const exists = (p: string) => access(p).then(() => true, () => false);
@@ -30,14 +33,19 @@ function ffmpeg(args: string[]): Promise<void> {
 
 async function synthMp3(text: string, mp3Path: string): Promise<void> {
   if (USE_ELEVEN) {
-    const r = await fetch(`https://api.elevenlabs.io/v1/text-to-speech/${ELEVEN_VOICE}`, {
-      method: "POST",
-      headers: { "xi-api-key": ELEVEN_KEY, "content-type": "application/json" },
-      body: JSON.stringify({ text, model_id: "eleven_multilingual_v2" }),
-    });
-    if (!r.ok) throw new Error(`elevenlabs ${r.status}`);
-    writeFileSync(mp3Path, Buffer.from(await r.arrayBuffer()));
-    return;
+    try {
+      const r = await fetch(`https://api.elevenlabs.io/v1/text-to-speech/${ELEVEN_VOICE}`, {
+        method: "POST",
+        headers: { "xi-api-key": ELEVEN_KEY, "content-type": "application/json" },
+        body: JSON.stringify({ text, model_id: ELEVEN_MODEL, language_code: "zh" }),
+        signal: AbortSignal.timeout(30_000),
+      });
+      if (!r.ok) throw new Error(`elevenlabs ${r.status}`);
+      writeFileSync(mp3Path, Buffer.from(await r.arrayBuffer()));
+      return;
+    } catch (e) {
+      console.error("[tts] elevenlabs failed, falling back to edge:", e);
+    }
   }
   const { MsEdgeTTS, OUTPUT_FORMAT } = await import("msedge-tts");
   const engine = new MsEdgeTTS();
@@ -53,7 +61,7 @@ async function synthMp3(text: string, mp3Path: string): Promise<void> {
 /** Returns cached {mp3, ogg} paths for the text, synthesizing on miss. */
 export async function tts(text: string): Promise<{ mp3: string; ogg: string }> {
   await mkdir(CACHE_DIR, { recursive: true });
-  const key = createHash("sha1").update(`${USE_ELEVEN ? `11:${ELEVEN_VOICE}` : VOICE}|${text}`).digest("hex");
+  const key = createHash("sha1").update(`${USE_ELEVEN ? `11:${ELEVEN_VOICE}:${ELEVEN_MODEL}` : VOICE}|${text}`).digest("hex");
   const mp3 = path.join(CACHE_DIR, `${key}.mp3`);
   const ogg = path.join(CACHE_DIR, `${key}.ogg`);
   if (!(await exists(mp3))) await synthMp3(text, mp3);

@@ -28,6 +28,7 @@ describe("llm request body", () => {
 
     process.env.DEEPSEEK_BASE_URL = `http://127.0.0.1:${port}`;
     process.env.DEEPSEEK_API_KEY = "test-key";
+    process.env.LLM_PROVIDER = "deepseek"; // pin: this test asserts the DeepSeek wire body
     const { chat } = await import("../src/tutor.js"); // env must be set before import
 
     try {
