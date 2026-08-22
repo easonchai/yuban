@@ -149,6 +149,29 @@ api.get("/api/link/status", h(async (req, res) => {
   res.json({ linked: false });
 }));
 
+/** Pull the human bits out of profileMd so the UI can show who this is for. */
+function parseProfile(md: string) {
+  // [ \t]* not \s*: \s eats the newline on EMPTY fields and captures the
+  // NEXT template line as the value (live bug 2026-08-22).
+  const field = (key: string) => {
+    const m = md.match(new RegExp(`^- ${key.replace("/", "\\/")}:[ \\t]*(.+)$`, "m"));
+    const v = m?.[1]?.trim();
+    return v && !v.startsWith("-") ? v : null;
+  };
+  const levelRaw = md.match(/^- Estimate:[ \t]*(.+?)(?:\.|\s+Confidence)/m)?.[1]?.trim() || null;
+  // template placeholder is not a level — show nothing until placed
+  const level = levelRaw && !/unknown/i.test(levelRaw) ? levelRaw : null;
+  return {
+    name: field("name"),
+    why: field("why learning"),
+    hobbies: field("hobbies"),
+    interests: field("interests"),
+    occupation: field("occupation"),
+    location: field("location"),
+    level,
+  };
+}
+
 api.get("/api/me", h(async (req, res) => {
   const id = await auth(req);
   if (!id) return void res.status(401).json({ error: "unauthenticated" });
@@ -162,6 +185,7 @@ api.get("/api/me", h(async (req, res) => {
     dueCount: due,
     totalWords: vocab.length,
     latest: vocab.slice(0, 8).map((v) => ({ word: v.word, pinyin: v.pinyin, gloss: v.gloss })),
+    profile: parseProfile(learner?.profileMd ?? ""),
   });
 }));
 

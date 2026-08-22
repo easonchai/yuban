@@ -8,6 +8,13 @@ runs on a laptop.
 Built for the Build with Gemini Hackathon 2026, Singapore. Track: Best Use
 of Gemma.
 
+**Try it live: https://cow-sorry-chrome-crossing.trycloudflare.com**
+
+That link is a Cloudflare tunnel straight to the laptop where Gemma 4 26B
+is running. You are talking to a model on a MacBook, not a cloud. Press
+"Just play on the web", no signup. If the link does not answer, the laptop
+is asleep, which is the honest failure mode of an on-device product.
+
 ![Landing page. The tutor texts a preview conversation, bubble by bubble.](docs/shots/shot-landing.png)
 
 ## Why full Gemma

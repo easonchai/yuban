@@ -205,25 +205,34 @@ async function buildSystem(learnerId: bigint): Promise<string> {
 
 // Gemma ignores inline tools once the full persona is loaded (0/4 in live
 // tests with nudges top and bottom; short prompts hit 2/2). So gemma mode
-// captures vocab FunctionGemma-style: a tiny post-reply extraction call with
-// a short prompt, fired after the reply is already sent (zero user latency).
+// captures vocab AND profile facts FunctionGemma-style: a tiny post-reply
+// extraction call with a short prompt, fired after the reply is already
+// sent (zero user latency).
 async function gemmaExtractWords(learnerId: bigint, userText: string, reply: string) {
   try {
+    const learner = await prisma.learner.findUnique({ where: { id: learnerId } });
+    const profile = learner?.profileMd || PROFILE_TEMPLATE;
     const resp = await gemmaChat({
       model: GEMMA_MODEL,
       messages: [
         {
           role: "system",
           content:
-            "You extract vocabulary from a Mandarin tutoring exchange. If the tutor taught or translated any specific Mandarin word, call save_word for each one (max 2, pinyin with tone marks). If no word was taught, reply with just: none",
+            "You extract data from one Mandarin tutoring exchange. Two jobs:\n" +
+            "1. If the tutor taught or translated a specific Mandarin word, call save_word for each (max 2, pinyin with tone marks).\n" +
+            "2. If the LEARNER revealed facts about themselves (name, age, location, occupation, hobbies, interests, people or pets, native language, why they are learning, their level), call update_profile ONCE with the COMPLETE updated markdown: take the CURRENT PROFILE below and fill or amend only the fields the learner just revealed, keeping everything else exactly as is.\n" +
+            "If neither applies, reply with just: none\n\n" +
+            `CURRENT PROFILE:\n${profile}`,
         },
         { role: "user", content: `Learner: ${userText}\nTutor: ${reply}` },
       ],
-      tools: TOOLS.filter((t) => t.function.name === "save_word"),
-      max_tokens: 200,
+      tools: TOOLS.filter((t) => t.function.name === "save_word" || t.function.name === "update_profile"),
+      max_tokens: 900,
     } as ChatParams);
     for (const tc of resp.choices[0].message.tool_calls ?? []) {
-      if (tc.function.name === "save_word") await runTool(learnerId, "save_word", tc.function.arguments);
+      if (tc.function.name === "save_word" || tc.function.name === "update_profile") {
+        await runTool(learnerId, tc.function.name, tc.function.arguments);
+      }
     }
   } catch (e) {
     console.error("[gemma-extract]", e);

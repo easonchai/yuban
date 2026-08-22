@@ -11,6 +11,10 @@ type Me = {
   dueCount: number;
   totalWords: number;
   latest: { word: string; pinyin: string; gloss: string }[];
+  profile?: {
+    name: string | null; why: string | null; hobbies: string | null;
+    interests: string | null; occupation: string | null; location: string | null; level: string | null;
+  };
 };
 
 const GREETINGS: Array<[number, string, string]> = [
@@ -57,10 +61,32 @@ export default function Today() {
     <div className="shell">
       <Nav streak={me.streak} words={me.totalWords} />
 
-      <div className="rise" style={{ display: "flex", alignItems: "baseline", gap: 14, margin: "14px 0 22px", flexWrap: "wrap" }}>
-        <span className="zh" style={{ fontSize: 30 }}>{zhGreet}</span>
+      <div className="rise" style={{ display: "flex", alignItems: "baseline", gap: 14, margin: "14px 0 10px", flexWrap: "wrap" }}>
+        <span className="zh" style={{ fontSize: 30 }}>{zhGreet}{me.profile?.name ? `，${me.profile.name}` : ""}</span>
         <span style={{ fontSize: 16 }} className="muted">{enGreet}. {dateLine}.</span>
       </div>
+
+      {(() => {
+        const p = me.profile;
+        const world = [p?.location, p?.occupation, p?.hobbies, p?.interests].filter(Boolean).join(" · ");
+        if (p?.why)
+          return (
+            <div className="rise r1" style={{ display: "flex", alignItems: "baseline", gap: 12, margin: "0 0 22px", flexWrap: "wrap" }}>
+              <span className="kicker red" style={{ marginBottom: 0 }}>Your why</span>
+              <span className="serif" style={{ fontSize: 20, fontStyle: "italic", color: "var(--body)" }}>{p.why}</span>
+              {p.level && <span className="pill">{p.level}</span>}
+            </div>
+          );
+        if (world)
+          return (
+            <div className="rise r1" style={{ display: "flex", alignItems: "baseline", gap: 12, margin: "0 0 22px", flexWrap: "wrap" }}>
+              <span className="kicker red" style={{ marginBottom: 0 }}>Your world</span>
+              <span className="serif" style={{ fontSize: 19, fontStyle: "italic", color: "var(--body)" }}>{world}</span>
+              {p?.level && <span className="pill">{p.level}</span>}
+            </div>
+          );
+        return <div style={{ marginBottom: 12 }} />;
+      })()}
 
       <div className="stat-grid cascade">
         {me.dueCount > 0 ? (

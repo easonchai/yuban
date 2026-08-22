@@ -63,9 +63,13 @@ export default function Chat() {
   const [busy, setBusy] = useState(false);
   const [wall, setWall] = useState<string | null>(null);
   const [unauthed, setUnauthed] = useState(false);
+  const [who, setWho] = useState<{ why: string | null; level: string | null; name: string | null; hobbies?: string | null; interests?: string | null; location?: string | null } | null>(null);
   const endRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
+    apiGet<{ profile?: { why: string | null; level: string | null; name: string | null; hobbies?: string | null; interests?: string | null; location?: string | null } }>("/api/me")
+      .then((d) => d.profile && setWho(d.profile))
+      .catch(() => {});
     apiGet<{ messages: Msg[] }>("/api/chat/history")
       .then((d) =>
         setMsgs(
@@ -113,6 +117,17 @@ export default function Chat() {
   return (
     <div className="shell narrow" style={{ display: "flex", flexDirection: "column", minHeight: "100dvh", paddingBottom: 90 }}>
       <Nav />
+      {(() => {
+        const line = who?.why ?? [who?.location, who?.hobbies, who?.interests].filter(Boolean).join(" · ");
+        if (!line) return null;
+        return (
+          <div className="rise" style={{ display: "flex", alignItems: "center", gap: 10, padding: "2px 0 12px", flexWrap: "wrap" }}>
+            <span className="zh" style={{ fontSize: 15, color: "var(--red)" }}>{who?.why ? "为什么" : "你的世界"}</span>
+            <span style={{ fontSize: 13, fontStyle: "italic" }} className="muted">{line}</span>
+            {who?.level && <span className="pill" style={{ fontSize: 11, padding: "3px 10px" }}>{who.level}</span>}
+          </div>
+        );
+      })()}
       <div style={{ flex: 1, display: "flex", flexDirection: "column", gap: 10, paddingBottom: 14 }}>
         {msgs.length === 0 && (
           <div className="card pop" style={{ textAlign: "center", padding: "32px 26px", margin: "24px auto 0", maxWidth: 420, display: "flex", flexDirection: "column", gap: 14, alignItems: "center" }}>
