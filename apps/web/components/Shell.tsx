@@ -111,7 +111,7 @@ export function ConnectTelegramButton({ label = "Connect Telegram" }: { label?: 
 export function Connect() {
   const guest = async () => {
     await apiPost("/api/guest", {});
-    location.href = "/today";
+    location.href = "/welcome"; // first-run onboarding before the gym
   };
 
   return (

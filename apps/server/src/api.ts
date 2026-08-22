@@ -8,7 +8,8 @@ import { consumeMagicLink, sessionLearner } from "./auth.js";
 import { isDue, gradeStrength, toneOf, tonePool, nextStreak, type Grade } from "./srs.js";
 import { chatGate } from "./subs.js";
 import { tts } from "./tts.js";
-import { listeningSentence, tutorReply } from "./tutor.js";
+import { listeningSentence, tutorReply, PROFILE_TEMPLATE } from "./tutor.js";
+import { transcribe, sttAvailable } from "./stt.js";
 
 export const api = express();
 api.use(express.json());
@@ -233,6 +234,55 @@ api.post("/api/listening/result", h(async (req, res) => {
     await prisma.vocab.update({ where: { id: row.id }, data: { strength: s, lastSeen: new Date() } });
   }
   await bumpStreak(id);
+  res.json({ ok: true });
+}));
+
+// Browser voice input: raw audio body in, transcript out. Same Groq Whisper
+// the Telegram bot uses; without a key the client hides the mic button.
+api.post(
+  "/api/stt",
+  express.raw({ type: ["audio/*", "application/octet-stream"], limit: "15mb" }),
+  h(async (req, res) => {
+    const id = await auth(req);
+    if (!id) return void res.status(401).json({ error: "unauthenticated" });
+    if (!sttAvailable()) return void res.json({ text: null });
+    const mime = req.headers["content-type"] ?? "audio/webm";
+    const ext = mime.includes("mp4") ? "m4a" : mime.includes("ogg") ? "ogg" : mime.includes("mpeg") ? "mp3" : "webm";
+    const text = await transcribe(req.body as Buffer, `voice.${ext}`);
+    res.json({ text });
+  }),
+);
+
+api.get("/api/stt/available", h(async (_req, res) => void res.json({ available: sttAvailable() })));
+
+// First-run onboarding: answers fill the SAME profile document the tutor
+// owns from then on (About/Level/Contexts/Style). Fresh accounts only get
+// direct writes; afterwards the model maintains it through update_profile.
+api.post("/api/onboarding", h(async (req, res) => {
+  const id = await auth(req);
+  if (!id) return void res.status(401).json({ error: "unauthenticated" });
+  const a = (req.body ?? {}) as Record<string, string>;
+  const clean = (s: unknown) => String(s ?? "").replace(/\n/g, " ").trim().slice(0, 300);
+  const fields: Array<[string, string]> = [
+    ["name", clean(a.name)],
+    ["location", clean(a.location)],
+    ["occupation", clean(a.occupation)],
+    ["hobbies", clean(a.hobbies)],
+    ["people/pets", clean(a.people)],
+    ["why learning", clean(a.why)],
+    ["self-rated level / past study", clean(a.level)],
+  ];
+  let profileMd = PROFILE_TEMPLATE;
+  for (const [key, val] of fields) {
+    if (val) profileMd = profileMd.replace(`- ${key}:`, `- ${key}: ${val}`);
+  }
+  if (clean(a.level)) {
+    profileMd = profileMd.replace(
+      "- Estimate: unknown — placement in progress. Confidence: none.",
+      `- Estimate: self-rated "${clean(a.level)}" — placement in progress. Confidence: low.`,
+    );
+  }
+  await prisma.learner.update({ where: { id }, data: { profileMd } });
   res.json({ ok: true });
 }));
 

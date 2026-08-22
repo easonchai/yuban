@@ -21,4 +21,6 @@ COPY package.json pnpm-workspace.yaml ./
 COPY apps/server/package.json ./apps/server/
 ENV NODE_ENV=production
 EXPOSE 8400
-CMD ["sh", "-c", "npx prisma migrate deploy && node apps/server/dist/index.js"]
+# local binary, NOT npx: npx consults the npm registry and hangs boot when
+# the network is down. Boot must work fully offline.
+CMD ["sh", "-c", "./node_modules/.bin/prisma migrate deploy && node apps/server/dist/index.js"]
