@@ -142,6 +142,30 @@ Tests: `pnpm -C apps/server test` (vitest, 21 tests: SRS math, subscription
 logic, auth single-use, chat gating, dash scrubbing, and an LLM wire-body
 regression test against a local capture server).
 
+## Putting it on the internet
+
+Running locally (above) is the developer path. For non-technical friends,
+the simplest hosted shape is a tunnel to the machine that holds the model:
+
+```bash
+cloudflared tunnel --url http://localhost:3000
+# then set WEB_ORIGIN=<the printed https url> in .env and restart the server
+# container so magic links and the bot's /app button use the public URL
+```
+
+Visitors get the full product at that URL — guest accounts, chat, drills —
+while inference stays on the host machine. If the host sleeps, the URL
+stops answering; that outage IS the "server is down" state, so keep the
+lid open (`caffeinate -s`) while sharing. A permanent deploy is the same
+compose stack on any always-on box, with `OLLAMA_ORIGIN` pointed at
+wherever the weights live.
+
+**In-browser inference (roadmap, honestly).** True "website but on-device"
+means WebGPU inference. As of today WebLLM ships no Gemma 4 builds (its
+newest is Gemma 2 2B, too weak for Mandarin), so this needs either a
+custom MLC compile or Google's MediaPipe runtime with self-hosted weights.
+The engine seam is ready for it; the ecosystem isn't yet.
+
 ## Rights
 
 Source is public for hackathon judging. All rights reserved.
