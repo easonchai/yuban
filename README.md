@@ -3,56 +3,86 @@
 **A Mandarin tutor that texts like a friend.** It chats about your actual
 life on web or Telegram, quietly saves the words you needed, and every
 drill (flashcards, tone training, listening) is built from your own
-vocabulary. No curriculum, no textbook lists, and the model that powers it
-runs on a laptop.
+vocabulary. No curriculum, no textbook lists, and the brain runs on a
+laptop.
 
 Built for the Build with Gemini Hackathon 2026, Singapore. Track: **Best
 Use of Gemma**.
 
-## How Gemma is used (and why it is essential)
+![Landing — the tutor texts a preview conversation, bubble by bubble](docs/shots/shot-landing.png)
 
-The tutor's brain is **Gemma 4 12B running fully local** via ollama
-(Q4 quantization, Metal GPU). This is not a model swapped into a generic
-demo; the product's economics and privacy depend on the weights being open:
+## Why full Gemma (the strategy, not just the track)
 
-- **Private by design.** Your conversations with the tutor are personal
-  (your life, your people, your week). In gemma mode nothing you say ever
-  leaves the machine. Kill the wifi and the tutor keeps teaching.
-- **Openness pays the margin.** The product charges $20 per 30 days.
-  Local Gemma inference costs $0 per message, which is what makes a
-  personal-tutor price point survivable.
-- **Adapted, not just prompted.** Two technical findings from building on
-  Gemma 4 12B are baked into the code:
-  1. **`think: false` is mandatory.** Ollama enables hidden reasoning by
-     default for gemma4; a 4-line reply burned 1100 reasoning tokens and
-     took 38.5s. With thinking off the same reply takes ~2s.
-  2. **Two-pass tool calling.** With the full ~3k-token persona loaded,
-     gemma stops emitting inline tool calls entirely (0 for 4 in our
-     tests), while short prompts hit 100%. So gemma mode captures
-     vocabulary the FunctionGemma way: a tiny post-reply extraction call
-     with a short tool-only prompt, fired after the reply is already sent.
-     Zero added latency, reliable word capture.
-- **The A/B is live.** One admin command (`/engine gemma|deepseek`) flips
-  the whole product between local Gemma and a cloud model mid-conversation,
-  same memory, same persona. The demo uses it to show exactly what the
-  open model buys you.
+The tutor's brain is **Gemma 4 12B running fully local** via ollama (Q4
+quantization, Metal GPU). This is a deliberate product foundation, chosen
+over Gemini Flash 3.7 after benchmarking both:
+
+- **Free forever is a wedge, not a discount.** Language learners are
+  burned out on subscriptions. A genuinely free tier only survives scale
+  if inference costs nothing, and only open weights make that possible.
+  With a cloud model every free user is a growing bill (Gemini Flash's
+  price doubles in January 2027 — a rug we would not control). With Gemma,
+  $0 per message, forever.
+- **Private by design.** People tell a tutor-friend about their crush,
+  their job, their family. In yuban none of that leaves the machine. Kill
+  the wifi and the tutor keeps teaching — that is the demo.
+- **Speed was a false advantage.** Flash 3.7 answers in ~0.7s, local
+  Gemma in ~2s. In a *texting* UX, two seconds behind a typing indicator
+  feels more human, not less. We could not find a moment where the user
+  would ever feel the difference — so we kept the model we can own.
+- **What paying buys** is not the model, it's the relationship: the
+  Telegram companion that checks in on you first. $20 for 30 rolling days,
+  pure margin, because the marginal message costs zero.
+
+### What building on Gemma actually taught us
+
+Two findings from adapting Gemma 4 12B, both baked into the code:
+
+1. **`think: false` is mandatory.** Ollama enables hidden reasoning by
+   default for gemma4; a 4-line reply burned ~1100 reasoning tokens and
+   took 38.5s. With thinking off, the same reply takes ~2s.
+2. **Two-pass tool calling.** With the full ~3k-token persona loaded,
+   gemma stopped emitting inline tool calls entirely (0 of 4 in live
+   tests) while short prompts hit 100%. So gemma mode captures vocabulary
+   the FunctionGemma way: a tiny post-reply extraction call with a short
+   tool-only prompt, fired after the reply is already sent. Zero added
+   latency, reliable word capture.
+
+The whole engine sits behind one `chat()` seam, and an admin command
+(`/engine gemma|deepseek`) can flip the product to a cloud model
+mid-conversation — same memory, same persona. We keep it as a live A/B
+that shows exactly what the open model buys.
 
 ## What it does
 
-- **Chat, two doors, one brain**: the same conversation on the web app and
-  the Telegram bot, one shared history. The bot can also check in on you
-  first ("hey, just checking in") because a closed browser tab cannot.
-- **Tri-line teaching**: every full Mandarin sentence arrives as hanzi,
-  tone-marked pinyin, and English, with native-voice audio a tap away.
-- **A word book that fills itself**: words you actually needed get saved
-  by the model through tools, then scheduled by spaced repetition
-  (strength 1 to 5 → review in 1/3/7/14/30 days).
-- **Drills built only from your words**: recall flashcards, a four-tone
-  ear trainer, and listening comprehension with sentences generated from
-  your own vocabulary.
-- **Hover any hanzi** on the site for instant pinyin.
-- **Web guests** get 10 starter words and 25 free tutor messages, then can
-  link Telegram and their whole account merges across.
+**Chat — one brain, two doors.** The same conversation on the web app and
+the Telegram bot, one shared history. The bot can also reach out first
+("hey, just checking in") because a closed browser tab cannot. Every full
+Mandarin sentence arrives as a tri-line — hanzi, tone-marked pinyin,
+English — with native-voice audio a tap away.
+
+![Chat — tri-line teaching with tap-to-hear, shared across web and Telegram](docs/shots/shot-chat.png)
+
+**A word book that fills itself.** Words you actually needed get saved by
+the model through tools, then scheduled by spaced repetition (strength
+1–5 → review in 1/3/7/14/30 days). Today shows what's due, your streak,
+and the freshest catches.
+
+![Today — due words, streak, and the freshest words from your chats](docs/shots/shot-today.png)
+
+**Drills built only from your words.** Recall flashcards with self-grading
+(keyboard on desktop: space reveals, 1–4 grades), a four-tone ear trainer,
+and listening comprehension with sentences generated from your own
+vocabulary.
+
+![Flashcards — recall first, then grade yourself](docs/shots/shot-flashcards.png)
+![Tone trainer — ear-only rounds with per-tone accuracy](docs/shots/shot-tones.png)
+
+**Small delights.** Hover any hanzi anywhere for instant pinyin. Audio is
+a native Mandarin neural voice (Microsoft Edge TTS — free), synthesized
+once and cached forever; one clip plays at a time, overlap is impossible.
+Web guests get 10 starter words and 25 free tutor messages, then can link
+Telegram and their whole account merges across.
 
 ## Stack
 
@@ -60,9 +90,8 @@ pnpm monorepo. `apps/server`: Express 4 + grammY Telegram bot + Prisma/
 Postgres in one process; engines behind one `chat()` seam (Gemma via
 ollama's native API, DeepSeek via OpenAI SDK). `apps/web`: Next.js 15,
 warm-paper design system, motion built on LottieFiles motion-design
-principles. TTS: Microsoft Edge neural voice (native Mandarin), cached to
-disk forever. STT: Groq Whisper (optional). Docker compose for the whole
-stack.
+principles. STT: Groq Whisper (optional; falls back to "type it for me").
+Docker compose for the whole stack.
 
 ## Run it
 
