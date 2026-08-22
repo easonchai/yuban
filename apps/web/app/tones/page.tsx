@@ -1,7 +1,7 @@
 "use client";
 import { useEffect, useState } from "react";
 import Link from "next/link";
-import { apiGet, apiPost, playTts, UnauthedError } from "@/lib/api";
+import { apiGet, apiPost, playUrl, UnauthedError } from "@/lib/api";
 import { Connect, SessionHead } from "@/components/Shell";
 
 type Item = { hanzi: string; pinyin: string; tone: number };
@@ -16,8 +16,9 @@ export default function Tones() {
   const [playing, setPlaying] = useState(false);
   const [unauthed, setUnauthed] = useState(false);
 
-  const play = (text: string) => {
-    const a = playTts(text);
+  // Native human recordings for isolated tones (TTS reads them lazily).
+  const play = (it: Item) => {
+    const a = playUrl(`/api/tone-audio?py=${encodeURIComponent(it.pinyin)}&hz=${encodeURIComponent(it.hanzi)}`);
     setPlaying(true);
     const done = () => setPlaying(false);
     a.addEventListener("ended", done, { once: true });
@@ -33,7 +34,7 @@ export default function Tones() {
     apiGet<{ items: Item[] }>("/api/tones/round")
       .then((d) => {
         setItems(d.items);
-        if (d.items[0]) setTimeout(() => play(d.items[0].hanzi), 400);
+        if (d.items[0]) setTimeout(() => play(d.items[0]), 400);
       })
       .catch((e) => (e instanceof UnauthedError ? setUnauthed(true) : console.error(e)));
   };
@@ -50,7 +51,7 @@ export default function Tones() {
     setPicked(null);
     const next = idx + 1;
     setIdx(next);
-    if (items[next]) play(items[next].hanzi);
+    if (items[next]) play(items[next]);
     else void apiPost("/api/tones/result", { right, total: items.length });
   };
 
@@ -106,7 +107,7 @@ export default function Tones() {
       ) : picked === null ? (
         <div key={idx} style={{ display: "flex", flexDirection: "column", gap: 26, alignItems: "center" }}>
           <span style={{ fontSize: 14, color: "var(--muted-deep)" }} className="rise">Which tone do you hear?</span>
-          <button className="bigplay pop" onClick={() => play(item.hanzi)} disabled={playing}>▶</button>
+          <button className="bigplay pop" onClick={() => play(item)} disabled={playing}>▶</button>
           <span style={{ fontSize: 13, fontWeight: 700 }} className="muted rise r2">Replay as many times as you like</span>
           <div className="grade-grid rise r2" style={{ gap: 10 }}>
             {TONES.map((t) => (
@@ -143,7 +144,7 @@ export default function Tones() {
           </div>
           {picked !== item.tone && (
             <div style={{ display: "flex", gap: 10, width: "100%" }} className="rise r1">
-              <button className="btn outline" style={{ flex: 1 }} onClick={() => play(item.hanzi)} disabled={playing}>
+              <button className="btn outline" style={{ flex: 1 }} onClick={() => play(item)} disabled={playing}>
                 ▶ Hear it again
               </button>
               <button className="btn dark" style={{ flex: 1 }} onClick={advance}>Next</button>

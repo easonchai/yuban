@@ -236,6 +236,49 @@ api.post("/api/listening/result", h(async (req, res) => {
   res.json({ ok: true });
 }));
 
+// Tone drills need ACCURATE isolated tones, which TTS engines are bad at
+// (they read single syllables with lazy contours). We serve native human
+// recordings from AllSet Learning's Pronunciation Wiki, fetched once and
+// cached forever; ü syllables and misses fall back to TTS of the hanzi.
+const TONE_DIR = process.env.TTS_CACHE_DIR ?? "tts-cache";
+
+api.get("/api/tone-audio", h(async (req, res) => {
+  const id = await auth(req);
+  if (!id) return void res.status(401).json({ error: "unauthenticated" });
+  const py = String(req.query.py ?? "");
+  const hz = String(req.query.hz ?? "").slice(0, 4);
+  const tone = toneOf(py);
+  const hasUmlaut = /[üǖǘǚǜ]/.test(py);
+  const base = py.normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase().replace(/[^a-z]/g, "");
+  const sendTtsFallback = async () => {
+    if (!hz) return void res.status(404).json({ error: "no audio" });
+    const { mp3 } = await tts(hz);
+    res.setHeader("cache-control", "public, max-age=31536000, immutable");
+    res.sendFile(mp3);
+  };
+  if (!tone || !base || hasUmlaut) return void (await sendTtsFallback());
+
+  const { existsSync, mkdirSync, writeFileSync: writeF } = await import("node:fs");
+  const path = await import("node:path");
+  mkdirSync(TONE_DIR, { recursive: true });
+  const file = path.resolve(TONE_DIR, `tone-${base}${tone}.mp3`);
+  if (!existsSync(file)) {
+    try {
+      const r = await fetch(
+        `https://resources.allsetlearning.com/pronwiki/resources/pinyin-audio/${base}${tone}.mp3`,
+        { signal: AbortSignal.timeout(15_000) },
+      );
+      if (!r.ok || !(r.headers.get("content-type") ?? "").includes("audio")) throw new Error(`${r.status}`);
+      writeF(file, Buffer.from(await r.arrayBuffer()));
+    } catch (e) {
+      console.error("[tone-audio] fetch failed, tts fallback:", base + tone, e);
+      return void (await sendTtsFallback());
+    }
+  }
+  res.setHeader("cache-control", "public, max-age=31536000, immutable");
+  res.sendFile(file);
+}));
+
 api.get("/api/tts", h(async (req, res) => {
   const id = await auth(req);
   if (!id) return void res.status(401).json({ error: "unauthenticated" });
