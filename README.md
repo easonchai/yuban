@@ -71,6 +71,24 @@ The mobile app is roadmap, not shipped: E4B via Google's AI Edge runtime is
 the same architecture with smaller weights, so nothing in this codebase's
 design changes — only the ollama endpoint does.
 
+**Swapping sizes is two lines.** Bigger machine? Smaller one? Pull the tag
+that fits and point the app at it:
+
+```bash
+ollama pull gemma4:26b            # or e2b / e4b / 12b / 31b
+echo "GEMMA_MODEL=gemma4:26b" >> .env
+docker compose up -d --force-recreate server
+```
+
+### Voice (also optional, also swappable)
+
+With zero TTS keys the app speaks with Microsoft Edge's **Xiaoxiao**, a
+native-Mandarin neural voice, free forever. Add an `ELEVENLABS_API_KEY`
+and ElevenLabs (Sarah on `eleven_v3` by default) is tried first, falling
+back to Xiaoxiao automatically on any failure — missing key, burned
+monthly quota, or no network. Every clip is synthesized once and cached to
+disk forever either way.
+
 ## What it does
 
 **Chat — one brain, two doors.** The same conversation on the web app and
