@@ -1,8 +1,8 @@
 "use client";
 import { useEffect, useState } from "react";
 import Link from "next/link";
-import { apiGet, playTts, UnauthedError } from "@/lib/api";
-import { Connect, Nav, ConnectTelegramButton } from "@/components/Shell";
+import { apiGet, prewarmTts, UnauthedError } from "@/lib/api";
+import { Connect, Nav, ConnectTelegramButton, PlayBtn } from "@/components/Shell";
 
 type Me = {
   id: string;
@@ -32,7 +32,10 @@ export default function Today() {
 
   useEffect(() => {
     apiGet<Me>("/api/me")
-      .then(setMe)
+      .then((m) => {
+        setMe(m);
+        m.latest.forEach((w) => prewarmTts(w.word)); // chips play instantly
+      })
       .catch((e) => (e instanceof UnauthedError ? setUnauthed(true) : console.error(e)));
   }, []);
 
@@ -128,7 +131,7 @@ export default function Today() {
               <span key={w.word} className="word-chip">
                 <span className="hz zh">{w.word}</span>
                 <span className="py">{w.pinyin}</span>
-                <button className="playbtn" onClick={() => playTts(w.word)} title={w.gloss}>▶</button>
+                <PlayBtn text={w.word} />
               </span>
             ))}
           </div>

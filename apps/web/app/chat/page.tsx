@@ -1,8 +1,8 @@
 "use client";
 import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
-import { apiGet, apiPost, playTts, UnauthedError } from "@/lib/api";
-import { Connect, Nav, ConnectTelegramButton } from "@/components/Shell";
+import { apiGet, apiPost, prewarmTts, UnauthedError } from "@/lib/api";
+import { Connect, Nav, ConnectTelegramButton, PlayBtn } from "@/components/Shell";
 
 type Msg = { role: "user" | "assistant"; content: string; ts?: string };
 const CJK = /[一-鿿]/;
@@ -32,7 +32,7 @@ function BotBubble({ content }: { content: string }) {
         <span key={i} className="triline" style={{ margin: "4px 0" }}>
           <span style={{ display: "flex", alignItems: "center", gap: 10 }}>
             <span className="hz zh">{hz}</span>
-            <button className="playbtn" onClick={() => playTts(hz)}>▶</button>
+            <PlayBtn text={hz} />
           </span>
           <span className="py">{lines[i + 1]}</span>
           <span className="en">{lines[i + 2]}</span>
@@ -46,7 +46,7 @@ function BotBubble({ content }: { content: string }) {
       CJK.test(line) ? (
         <span key={i} style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
           <span>{line}</span>
-          <button className="playbtn" onClick={() => playTts(line)}>▶</button>
+          <PlayBtn text={line} />
         </span>
       ) : (
         <span key={i} style={{ display: "block" }}>{line || " "}</span>
@@ -93,11 +93,14 @@ export default function Chat() {
     try {
       const d = await apiPost<{ reply: string | null; wall: string | null }>("/api/chat", { text });
       if (d.wall) setWall(d.wall);
-      else if (d.reply)
+      else if (d.reply) {
+        // pre-warm every Mandarin line NOW so the play tap is instant later
+        for (const line of d.reply.split("\n")) if (CJK.test(line)) prewarmTts(line.trim());
         setMsgs((m) => [
           ...(m ?? []),
           ...splitParts(d.reply!).map((content) => ({ role: "assistant" as const, content, ts: new Date().toISOString() })),
         ]);
+      }
     } catch (e) {
       if (e instanceof UnauthedError) setUnauthed(true);
       else console.error(e);

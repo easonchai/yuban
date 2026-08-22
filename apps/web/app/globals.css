@@ -280,6 +280,9 @@ h1 { font-family: var(--font-instrument), "Instrument Serif", serif; font-weight
 .progressbar > div { height: 100%; background: var(--red); transition: width var(--dur-std) var(--ease-out); }
 .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
 
+.spin { display: inline-block; animation: spin-slow 0.9s linear infinite; }
+@keyframes spin-slow { to { transform: rotate(360deg); } }
+
 .pinyin-tip {
   position: fixed; transform: translate(-50%, calc(-100% - 8px)); z-index: 60;
   background: var(--ink); color: var(--cream); font-size: 13px; font-style: italic;

@@ -81,7 +81,14 @@ export async function claimLinkSession(
           update: {},
         });
       }
-      await tx.message.updateMany({ where: { learnerId: guestId }, data: { learnerId: tgId } });
+      // Chat history moves ONLY into an empty account. Merging two threads
+      // interleaves unrelated conversations and pollutes the tutor's memory
+      // (live bug 2026-08-22: guest test chats landed inside a real thread).
+      // Vocab and streak always merge; a guest's throwaway chat dies with it.
+      const tgMsgCount = await tx.message.count({ where: { learnerId: tgId } });
+      if (tgMsgCount === 0) {
+        await tx.message.updateMany({ where: { learnerId: guestId }, data: { learnerId: tgId } });
+      }
       const tg = await tx.learner.findUnique({ where: { id: tgId } });
       if (tg && guest.streak > tg.streak) {
         await tx.learner.update({

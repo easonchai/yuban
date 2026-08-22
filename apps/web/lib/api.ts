@@ -39,3 +39,11 @@ export function playUrl(url: string): HTMLAudioElement {
 export function playTts(text: string): HTMLAudioElement {
   return playUrl(`/api/tts?text=${encodeURIComponent(text)}`);
 }
+
+/** Fire-and-forget: synthesize + cache a clip so the play tap is instant. */
+const warmed = new Set<string>();
+export function prewarmTts(text: string) {
+  if (!text || warmed.has(text) || warmed.size > 200) return;
+  warmed.add(text);
+  void fetch(`/api/tts?text=${encodeURIComponent(text)}`, { credentials: "same-origin" }).catch(() => {});
+}

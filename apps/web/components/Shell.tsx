@@ -2,7 +2,33 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect, useState } from "react";
-import { apiGet, apiPost, playUrl } from "@/lib/api";
+import { apiGet, apiPost, playUrl, playTts } from "@/lib/api";
+
+/** Play ring with a visible loading state while the clip synthesizes. */
+export function PlayBtn({ text, url, size }: { text?: string; url?: string; size?: "lg" }) {
+  const [state, setState] = useState<"idle" | "loading" | "playing">("idle");
+  const tap = () => {
+    const a = url ? playUrl(url) : playTts(text ?? "");
+    setState("loading");
+    const onPlaying = () => setState("playing");
+    const done = () => setState("idle");
+    a.addEventListener("playing", onPlaying, { once: true });
+    a.addEventListener("ended", done, { once: true });
+    a.addEventListener("pause", done, { once: true });
+    a.addEventListener("error", done, { once: true });
+  };
+  return (
+    <button
+      className={`playbtn ${size === "lg" ? "lg" : ""} ${state === "playing" ? "busy" : ""}`}
+      onClick={tap}
+      disabled={state === "loading"}
+      title={state === "loading" ? "loading audio" : "hear it"}
+      style={state === "loading" ? { opacity: 0.5 } : undefined}
+    >
+      {state === "loading" ? <span className="spin">◌</span> : "▶"}
+    </button>
+  );
+}
 
 const NAV = [
   { href: "/today", label: "Today", glyph: "今", tab: "TODAY" },
