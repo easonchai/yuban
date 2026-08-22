@@ -51,7 +51,25 @@ Two findings from adapting Gemma 4 12B, both baked into the code:
 The whole engine sits behind one `chat()` seam, and an admin command
 (`/engine gemma|deepseek`) can flip the product to a cloud model
 mid-conversation — same memory, same persona. We keep it as a live A/B
-that shows exactly what the open model buys.
+that shows exactly what the open model buys. **Privacy first, not privacy
+only**: on-device is the default, cloud is an opt-in switch.
+
+### Which Gemma where (Gemma 4, April 2026 — the current generation)
+
+Ollama is only the runtime: a local server that holds the open weights and
+exposes an API. Swap the tag and the same product runs a different size.
+
+| Tier | Model | Size (Q4) | Fits | Notes |
+|---|---|---|---|---|
+| Phone | Gemma 4 E2B | ~2.9 GB | modern phones | smallest; 128K ctx; native audio+vision input |
+| Phone / thin laptop | Gemma 4 E4B | ~4.5 GB | phones, 8GB laptops | the mobile target; audio+vision input |
+| Laptop (this demo) | **Gemma 4 12B** | ~6.7 GB | 16GB+ machines | what yuban ships; IFEval 97.2; ~2s replies on an M-series Mac |
+| Laptop, quality bump | Gemma 4 26B-A4B | ~14.4 GB | 32GB+ machines | MoE, only 3.8B active per token — near-31B quality at small-model speed |
+| Server | Gemma 4 31B | ~17.5 GB | GPU boxes | benchmark tier; IFEval 98.9 |
+
+The mobile app is roadmap, not shipped: E4B via Google's AI Edge runtime is
+the same architecture with smaller weights, so nothing in this codebase's
+design changes — only the ollama endpoint does.
 
 ## What it does
 
