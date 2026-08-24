@@ -64,3 +64,35 @@ export function splitBubbles(text: string): string[] {
     .filter(Boolean)
     .slice(0, 3);
 }
+
+// Telegram accepts reactions only from a fixed emoji set, and a bad one is a
+// 400 (which, pre-bot.catch, killed polling once already). Stored without the
+// variation selector because that is the form the API lists.
+const REACTIONS = new Set(
+  ["👍","👎","❤","🔥","🥰","👏","😁","🤔","🤯","😱","😢","🎉","🤩","🙏","👌","💯",
+   "🤣","😭","👀","😍","🫡","🤝","🙈","😎","🤗","🤪","🆒","😴","💔","🗿"],
+);
+
+/**
+ * She may open a reply with `[react:😂]` to react to the learner's message.
+ * Returns the emoji (null if absent or not allowed) and the text without it.
+ */
+export function parseReaction(text: string): { emoji: string | null; text: string } {
+  const m = text.match(/^\s*\[react:\s*(\S+?)\s*\]\s*\n?/);
+  if (!m) return { emoji: null, text };
+  const raw = m[1].replace(/️/g, "");
+  return { emoji: REACTIONS.has(raw) ? raw : null, text: text.slice(m[0].length).trimStart() };
+}
+
+/**
+ * Terminal full stops are the fakest thing in a text message, and the prompt
+ * ban slips the same way the dash ban did. Drops a single trailing "." from
+ * each bubble. Keeps "..." (that one carries tone), keeps 。！？ (Mandarin
+ * punctuation is grammar, not voice), keeps the `---` separators intact.
+ */
+export function stripEndPeriod(text: string): string {
+  return text
+    .split(/(\n\s*---\s*\n)/)
+    .map((seg) => (/^\n?\s*---\s*\n?$/.test(seg) ? seg : seg.replace(/(?<![.。])\.([ \t]*)$/, "$1")))
+    .join("");
+}

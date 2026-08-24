@@ -25,6 +25,8 @@ model Learner {
   vocab    Vocab[]
   messages Message[]
   sessions WebSession[]
+  moments  Moment[]
+  threads  Thread[]
 }
 
 model Vocab {
@@ -71,4 +73,35 @@ model WebSession {
   consumed  Boolean  @default(false) // magic link consumed / link claimed -> cookie issued
 
   learner Learner? @relation(fields: [learnerId], references: [id], onDelete: Cascade)
+}
+
+// Episodic memory: things that HAPPENED, not facts about who they are (those
+// live in Learner.profileMd). The newest ones ride in the system prompt so she
+// can call back to a real event instead of asking "how was your day" again.
+model Moment {
+  id        Int      @id @default(autoincrement())
+  learnerId BigInt
+  text      String // one past-tense sentence
+  feeling   String   @default("") // their mood at the time, the model's read
+  ts        DateTime @default(now())
+
+  learner Learner @relation(fields: [learnerId], references: [id], onDelete: Cascade)
+
+  @@index([learnerId, id])
+}
+
+// Open loops: something she said she'd ask about later. The ping scheduler
+// prefers a due thread over a generic opener, which is the whole difference
+// between a notification and someone remembering.
+model Thread {
+  id        Int       @id @default(autoincrement())
+  learnerId BigInt
+  text      String // "how the vendor call went"
+  askAfter  DateTime
+  closedAt  DateTime? // stamped when asked (see ponytail note in bot.ts)
+  createdAt DateTime  @default(now())
+
+  learner Learner @relation(fields: [learnerId], references: [id], onDelete: Cascade)
+
+  @@index([learnerId, closedAt, askAfter])
 }

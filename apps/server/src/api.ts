@@ -7,6 +7,7 @@ import { bot } from "./bot.js";
 import { consumeMagicLink, sessionLearner } from "./auth.js";
 import { isDue, gradeStrength, toneOf, tonePool, nextStreak, type Grade } from "./srs.js";
 import { chatGate } from "./subs.js";
+import { parseReaction } from "./mandarin.js";
 import { tts } from "./tts.js";
 import { listeningSentence, tutorReply, PROFILE_TEMPLATE } from "./tutor.js";
 import { transcribe, sttAvailable } from "./stt.js";
@@ -128,7 +129,8 @@ api.post("/api/chat", h(async (req, res) => {
   const msgCount = await prisma.message.count({ where: { learnerId: id, role: "user" } });
   const gate = chatGate(learner, msgCount);
   if (gate !== "ok") return void res.json({ reply: null, wall: gate });
-  const reply = await tutorReply(id, text);
+  // Reactions are a Telegram affordance; the web chat just drops the marker.
+  const reply = parseReaction(await tutorReply(id, text)).text;
   res.json({ reply, wall: null });
 }));
 

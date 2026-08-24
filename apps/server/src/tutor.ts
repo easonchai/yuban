@@ -4,7 +4,7 @@ import { readFileSync } from "node:fs";
 import path from "node:path";
 import { prisma } from "./db.js";
 import { clampStrength } from "./srs.js";
-import { stripDashes } from "./mandarin.js";
+import { stripDashes, stripEndPeriod, parseReaction } from "./mandarin.js";
 import { REPO_ROOT } from "./util.js";
 
 const MODEL = process.env.DEEPSEEK_MODEL ?? "deepseek-v4-flash";
@@ -141,6 +141,37 @@ const TOOLS: OpenAI.Chat.ChatCompletionTool[] = [
       },
     },
   },
+  {
+    type: "function",
+    function: {
+      name: "remember",
+      description:
+        "Save something that HAPPENED to them or how they felt, in one short past-tense sentence. " +
+        "Events and feelings only, never general facts about who they are (those belong in the profile).",
+      parameters: {
+        type: "object",
+        properties: {
+          text: { type: "string" },
+          feeling: { type: "string", description: "their mood in one word, if it was clear" },
+        },
+        required: ["text"],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "follow_up",
+      description:
+        "Note something to ask them about later (a thing coming up, an unfinished story). " +
+        "Phrase it as what you will ask, e.g. 'how the vendor call went'.",
+      parameters: {
+        type: "object",
+        properties: { text: { type: "string" }, in_days: { type: "number" } },
+        required: ["text", "in_days"],
+      },
+    },
+  },
 ];
 
 async function runTool(learnerId: bigint, name: string, argsJson: string): Promise<string> {
@@ -178,11 +209,31 @@ async function runTool(learnerId: bigint, name: string, argsJson: string): Promi
       });
       return "adjusted";
     }
+    if (name === "remember") {
+      const text = String(args.text ?? "").trim().slice(0, 300);
+      if (!text) return "nothing to remember";
+      await prisma.moment.create({
+        data: { learnerId, text, feeling: String(args.feeling ?? "").slice(0, 40) },
+      });
+      return "remembered";
+    }
+    if (name === "follow_up") {
+      const text = String(args.text ?? "").trim().slice(0, 300);
+      if (!text) return "nothing to follow up on";
+      const days = Math.min(30, Math.max(0, Number(args.in_days) || 1));
+      await prisma.thread.create({
+        data: { learnerId, text, askAfter: new Date(Date.now() + days * 864e5) },
+      });
+      return "noted";
+    }
     return "unknown tool";
   } catch (e) {
     return `error: ${e}`;
   }
 }
+
+const MOMENTS_IN_PROMPT = 12;
+const day = (d: Date) => d.toISOString().slice(0, 10);
 
 async function buildSystem(learnerId: bigint): Promise<string> {
   const learner = await prisma.learner.findUnique({ where: { id: learnerId } });
@@ -190,6 +241,16 @@ async function buildSystem(learnerId: bigint): Promise<string> {
     where: { learnerId },
     orderBy: { lastSeen: "desc" },
     take: 100,
+  });
+  const moments = await prisma.moment.findMany({
+    where: { learnerId },
+    orderBy: { id: "desc" },
+    take: MOMENTS_IN_PROMPT,
+  });
+  const threads = await prisma.thread.findMany({
+    where: { learnerId, closedAt: null },
+    orderBy: { askAfter: "asc" },
+    take: 10,
   });
   const mode = learner?.mode === "study"
     ? "study — scaffold EVERY full Mandarin sentence with the three-line block."
@@ -200,7 +261,25 @@ async function buildSystem(learnerId: bigint): Promise<string> {
         .map((v) => `| ${v.word} | ${v.pinyin} | ${v.gloss} | ${v.context} | ${v.strength} | ${v.lastSeen.toISOString().slice(0, 10)} |`)
         .join("\n")
     : "(no words saved yet)";
-  return `${PERSONA}\n\n# Current mode\n${mode}\n\n# Learner profile\n${learner?.profileMd || PROFILE_TEMPLATE}\n\n# Vocab (strengths 1-5, app-scheduled)\n${vocabMd}`;
+  const momentsMd = moments.length
+    ? moments
+        .reverse()
+        .map((m) => `- ${day(m.ts)}: ${m.text}${m.feeling ? ` (${m.feeling})` : ""}`)
+        .join("\n")
+    : "(nothing yet, this is all new)";
+  const now = new Date();
+  const threadsMd = threads.length
+    ? threads
+        .map((t) => `- ${t.askAfter <= now ? "DUE NOW" : `not before ${day(t.askAfter)}`}: ${t.text}`)
+        .join("\n")
+    : "(none)";
+  return (
+    `${PERSONA}\n\n# Current mode\n${mode}` +
+    `\n\n# Learner profile\n${learner?.profileMd || PROFILE_TEMPLATE}` +
+    `\n\n# What's been happening (their life, newest last. Today is ${day(now)})\n${momentsMd}` +
+    `\n\n# Things you said you'd ask about\n${threadsMd}` +
+    `\n\n# Vocab (strengths 1-5, app-scheduled)\n${vocabMd}`
+  );
 }
 
 // Gemma ignores inline tools once the full persona is loaded (0/4 in live
@@ -218,25 +297,74 @@ async function gemmaExtractWords(learnerId: bigint, userText: string, reply: str
         {
           role: "system",
           content:
-            "You extract data from one Mandarin tutoring exchange. Two jobs:\n" +
+            "You extract data from one Mandarin tutoring exchange. Four jobs:\n" +
             "1. If the tutor taught or translated a specific Mandarin word, call save_word for each (max 2, pinyin with tone marks).\n" +
             "2. If the LEARNER revealed facts about themselves (name, age, location, occupation, hobbies, interests, people or pets, native language, why they are learning, their level), call update_profile ONCE with the COMPLETE updated markdown: take the CURRENT PROFILE below and fill or amend only the fields the learner just revealed, keeping everything else exactly as is.\n" +
-            "If neither applies, reply with just: none\n\n" +
+            "3. If something HAPPENED to the learner or they showed a clear feeling, call remember once with one short past-tense sentence. Events and feelings only, never traits or preferences (those are job 2).\n" +
+            "4. If they mentioned something coming up, or a story that is not finished, call follow_up once with what to ask them later and in how many days.\n" +
+            "If none apply, reply with just: none\n\n" +
             `CURRENT PROFILE:\n${profile}`,
         },
         { role: "user", content: `Learner: ${userText}\nTutor: ${reply}` },
       ],
-      tools: TOOLS.filter((t) => t.function.name === "save_word" || t.function.name === "update_profile"),
+      tools: TOOLS.filter((t) => t.function.name !== "adjust_word"),
       max_tokens: 900,
     } as ChatParams);
     for (const tc of resp.choices[0].message.tool_calls ?? []) {
-      if (tc.function.name === "save_word" || tc.function.name === "update_profile") {
+      if (tc.function.name !== "adjust_word") {
         await runTool(learnerId, tc.function.name, tc.function.arguments);
       }
     }
   } catch (e) {
     console.error("[gemma-extract]", e);
   }
+}
+
+// Photos: one caption call, then the normal pipeline treats it as context.
+// DeepSeek needs its vision SKU (same endpoint, same price); ollama takes
+// base64 images on the message itself. Any failure degrades to "no caption",
+// which the bot turns into asking them what it is, like a person with a
+// slow connection would.
+const VISION_MODEL = process.env.DEEPSEEK_VISION_MODEL ?? "deepseek-v4-flash-vision-exp";
+const CAPTION_PROMPT =
+  "Describe this photo in one or two plain sentences: what is in it, where it looks like, " +
+  "and the mood. Name specific objects, they are what makes it worth talking about. " +
+  "If there is Chinese text in the image, transcribe it.";
+
+export async function visionCaption(imgB64: string, mime = "image/jpeg"): Promise<string> {
+  if (engine === "gemma") {
+    const r = await fetch(`${OLLAMA}/api/chat`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        model: GEMMA_MODEL,
+        messages: [{ role: "user", content: CAPTION_PROMPT, images: [imgB64] }],
+        stream: false,
+        think: false,
+        keep_alive: "30m",
+        options: { num_predict: 200 },
+      }),
+      signal: AbortSignal.timeout(120_000),
+    });
+    if (!r.ok) throw new Error(`ollama vision ${r.status}`);
+    const j = (await r.json()) as { message?: { content?: string } };
+    return (j.message?.content ?? "").trim();
+  }
+  const resp = await client.chat.completions.create({
+    model: VISION_MODEL,
+    messages: [
+      {
+        role: "user",
+        content: [
+          { type: "text", text: CAPTION_PROMPT },
+          { type: "image_url", image_url: { url: `data:${mime};base64,${imgB64}` } },
+        ],
+      },
+    ],
+    max_tokens: 200,
+    ...THINKING_OFF,
+  } as ChatParams);
+  return (resp.choices[0].message.content ?? "").trim();
 }
 
 /** One tutor turn. Stores messages; never returns silence for a user turn. */
@@ -286,10 +414,14 @@ export async function tutorReply(learnerId: bigint, userText: string): Promise<s
     finalText = (resp.choices[0].message.content ?? "").trim();
   }
 
-  finalText = stripDashes(finalText).trim();
+  finalText = stripEndPeriod(stripDashes(finalText).trim());
+  // The `[react:X]` marker is a delivery instruction, not part of what she
+  // said: callers parse it off, history never sees it (so it can't leak into
+  // the web chat or teach itself back in as a text pattern).
+  const stored = parseReaction(finalText).text;
   await prisma.message.create({ data: { learnerId, role: "user", content: userText } });
-  if (finalText && finalText !== "…") {
-    await prisma.message.create({ data: { learnerId, role: "assistant", content: finalText } });
+  if (stored && stored !== "…") {
+    await prisma.message.create({ data: { learnerId, role: "assistant", content: stored } });
     if (engine === "gemma") void gemmaExtractWords(learnerId, userText, finalText);
   }
   return finalText;

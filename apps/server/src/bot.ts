@@ -4,14 +4,14 @@
 import { Bot, InputFile } from "grammy";
 import type { Vocab } from "@prisma/client";
 import { prisma, ADMIN_TG_ID } from "./db.js";
-import { tutorReply, PROFILE_TEMPLATE, getEngine, setEngine } from "./tutor.js";
-import { extractMandarin, renderHtml, splitBubbles } from "./mandarin.js";
+import { tutorReply, PROFILE_TEMPLATE, getEngine, setEngine, visionCaption } from "./tutor.js";
+import { extractMandarin, renderHtml, splitBubbles, parseReaction } from "./mandarin.js";
 import { isDue, gradeStrength, type Grade } from "./srs.js";
 import { mintCode, activate, isActive, daysLeft } from "./subs.js";
 import { createMagicLink, claimLinkSession } from "./auth.js";
 import { tts } from "./tts.js";
 import { transcribe, sttAvailable } from "./stt.js";
-import { isStale } from "./util.js";
+import { isStale, readGapMs, bubbleGapMs } from "./util.js";
 
 const TOKEN = process.env.TELEGRAM_BOT_TOKEN ?? "";
 const WEB_ORIGIN = process.env.WEB_ORIGIN ?? "http://localhost:3000";
@@ -72,12 +72,14 @@ async function send(chatId: number | bigint, text: string) {
   }
 }
 
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
 async function sendBubbles(chatId: number | bigint, text: string) {
   const parts = splitBubbles(text);
   for (let i = 0; i < parts.length; i++) {
     if (i > 0) {
       await bot.api.sendChatAction(Number(chatId), "typing").catch(() => {});
-      await new Promise((r) => setTimeout(r, 1000 + Math.random() * 1400));
+      await sleep(bubbleGapMs(parts[i]));
     }
     await send(chatId, parts[i]);
   }
@@ -106,10 +108,21 @@ function enqueue(chatId: number, fn: () => Promise<void>) {
   chains.set(key, nextP);
 }
 
-async function converse(chatId: number, learnerId: bigint, text: string) {
+type ConverseOpts = { messageId?: number; instant?: boolean };
+
+async function converse(chatId: number, learnerId: bigint, text: string, opts: ConverseOpts = {}) {
+  // She reads before she types. Check-ins and photos skip it: one was never
+  // sent by anyone, the other already spent real seconds in the vision call.
+  if (!opts.instant) await sleep(readGapMs(text));
   const stop = typingWhile(chatId);
   try {
-    const reply = await tutorReply(learnerId, text);
+    const raw = await tutorReply(learnerId, text);
+    const { emoji, text: reply } = parseReaction(raw);
+    if (emoji && opts.messageId) {
+      await bot.api
+        .setMessageReaction(chatId, opts.messageId, [{ type: "emoji", emoji: emoji as "👍" }])
+        .catch(() => {}); // a rejected reaction is never worth losing the reply over
+    }
     if (reply && reply !== "…") await sendBubbles(chatId, reply);
     else await send(chatId, "嗯？我走神了, say that again?");
   } catch (e) {
@@ -338,7 +351,40 @@ bot.on("message:text", async (ctx) => {
   const id = BigInt(ctx.from.id);
   const learner = await ensureLearner(id, ctx.from.username ?? "");
   if (!isActive(learner)) return void (await send(ctx.chat.id, PAY_PROMPT));
-  enqueue(ctx.chat.id, () => converse(ctx.chat.id, id, ctx.message.text));
+  const messageId = ctx.message.message_id;
+  enqueue(ctx.chat.id, () => converse(ctx.chat.id, id, ctx.message.text, { messageId }));
+});
+
+// Photos: the richest input a tutor-friend can get. Their actual lunch beats
+// any textbook noun, and it feeds the harvest rule with something real.
+bot.on("message:photo", async (ctx) => {
+  const id = BigInt(ctx.from.id);
+  const learner = await ensureLearner(id, ctx.from.username ?? "");
+  if (!isActive(learner)) return void (await send(ctx.chat.id, PAY_PROMPT));
+  const messageId = ctx.message.message_id;
+  const caption = (ctx.message.caption ?? "").trim();
+  const fileId = ctx.message.photo[ctx.message.photo.length - 1].file_id; // largest size
+  enqueue(ctx.chat.id, async () => {
+    const stop = typingWhile(ctx.chat.id);
+    let described = "";
+    try {
+      const file = await ctx.api.getFile(fileId);
+      const url = `https://api.telegram.org/file/bot${TOKEN}/${file.file_path}`;
+      const bytes = Buffer.from(await (await fetch(url)).arrayBuffer());
+      described = await visionCaption(bytes.toString("base64"));
+    } catch (e) {
+      console.error("[vision]", e);
+    } finally {
+      stop();
+    }
+    if (!described) return void (await send(ctx.chat.id, "hm the pic won't load for me, what is it"));
+    await converse(
+      ctx.chat.id,
+      id,
+      `[photo] ${described}${caption ? `\n[they wrote] ${caption}` : ""}`,
+      { messageId, instant: true },
+    );
+  });
 });
 
 bot.on(["message:voice", "message:audio"], async (ctx) => {
@@ -357,7 +403,8 @@ bot.on(["message:voice", "message:audio"], async (ctx) => {
       if (!text)
         return void (await send(ctx.chat.id, "Couldn't transcribe that voice note — type it for me?"));
       await send(ctx.chat.id, `🎙️ "${text}"`);
-      await converse(ctx.chat.id, id, text);
+      // Transcription already cost real seconds; no extra reading beat.
+      await converse(ctx.chat.id, id, text, { messageId: ctx.message.message_id, instant: true });
     } finally {
       stop();
     }
@@ -370,6 +417,11 @@ const PING_TEXT =
   "[scheduled check-in — the learner did not write this. Open a fresh " +
   "conversation obeying the anti-repetition rules: new focus word, new " +
   "opener type vs the last two check-ins.]";
+
+const threadPing = (t: string) =>
+  "[scheduled check-in — the learner did not write this. You said you would ask " +
+  `about this and today is the day, so ask now, like it just came to mind: ${t}. ` +
+  "One short opener. Do not stack a lesson on top of it.]";
 
 export function nextPingAt(now = new Date(), perDay = DEFAULT_PINGS): Date {
   const gapH = (WAKE_END - WAKE_START) / Math.max(1, perDay);
@@ -398,7 +450,19 @@ export function startPingScheduler() {
           where: { id: learner.id },
           data: { nextPingAt: nextPingAt(now, learner.pingsPerDay) },
         });
-        enqueue(Number(learner.id), () => converse(Number(learner.id), learner.id, PING_TEXT));
+        // A due open loop beats a generic opener: remembering to ask is the
+        // whole difference between a notification and a friend.
+        const thread = await prisma.thread.findFirst({
+          where: { learnerId: learner.id, closedAt: null, askAfter: { lte: now } },
+          orderBy: { askAfter: "asc" },
+        });
+        // ponytail: closed on ask, not on answer. Asking twice is worse than
+        // dropping one. The answer gets captured as a Moment anyway.
+        if (thread) await prisma.thread.update({ where: { id: thread.id }, data: { closedAt: now } });
+        const text = thread ? threadPing(thread.text) : PING_TEXT;
+        enqueue(Number(learner.id), () =>
+          converse(Number(learner.id), learner.id, text, { instant: true }),
+        );
       }
     } catch (e) {
       console.error("[ping-loop]", e);

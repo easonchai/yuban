@@ -1,9 +1,9 @@
 import { describe, it, expect } from "vitest";
 import { isDue, gradeStrength, toneOf, clampStrength, tonePool, nextStreak } from "../src/srs.js";
 import { extendedExpiry, daysLeft, mintCodeValue, activate, chatGate, SUB_DAYS } from "../src/subs.js";
-import { extractMandarin, renderHtml, splitBubbles, stripDashes } from "../src/mandarin.js";
+import { extractMandarin, renderHtml, splitBubbles, stripDashes, parseReaction, stripEndPeriod } from "../src/mandarin.js";
 import { consumeMagicLink, sessionLearner } from "../src/auth.js";
-import { isStale } from "../src/util.js";
+import { isStale, readGapMs, bubbleGapMs } from "../src/util.js";
 
 const d = (s: string) => new Date(s);
 
@@ -171,5 +171,78 @@ describe("mandarin", () => {
     expect(stripDashes("— hello")).toBe("hello");
     expect(stripDashes("my day-to-day routine")).toBe("my day-to-day routine"); // compounds survive
     expect(stripDashes("a\n---\nb")).toBe("a\n---\nb"); // bubble separator survives
+  });
+});
+
+describe("reactions", () => {
+  it("pulls a leading [react:X] off the reply", () => {
+    const r = parseReaction("[react:🤣]\nok that's actually funny");
+    expect(r.emoji).toBe("🤣");
+    expect(r.text).toBe("ok that's actually funny");
+  });
+  it("normalises the variation selector Telegram's list omits", () => {
+    expect(parseReaction("[react:❤️] aw").emoji).toBe("❤");
+  });
+  it("drops emoji Telegram would 400 on, keeping the text", () => {
+    const r = parseReaction("[react:🦖]\nrawr");
+    expect(r.emoji).toBeNull();
+    expect(r.text).toBe("rawr");
+  });
+  it("leaves an ordinary reply alone", () => {
+    expect(parseReaction("no marker here")).toEqual({ emoji: null, text: "no marker here" });
+  });
+});
+
+describe("timing as personality", () => {
+  it("never delays an answer they asked for", () => {
+    expect(readGapMs("how do i say exhausted?")).toBe(0);
+    expect(readGapMs("what does 疯狂 mean")).toBe(0);
+    expect(readGapMs("translate: i'm tired")).toBe(0);
+  });
+  it("reads longer messages for longer, within human bounds", () => {
+    const short = readGapMs("ugh long day");
+    const long = readGapMs("x".repeat(400));
+    expect(short).toBeLessThanOrEqual(750); // jittered 500
+    expect(long).toBeLessThanOrEqual(3900); // jittered 2600 cap
+    expect(long).toBeGreaterThan(short);
+  });
+  it("scales bubble gaps with bubble length and stays under 4s", () => {
+    for (const text of ["k", "x".repeat(50), "x".repeat(500)]) {
+      const gap = bubbleGapMs(text);
+      expect(gap).toBeGreaterThanOrEqual(500);
+      expect(gap).toBeLessThanOrEqual(4000);
+    }
+    expect(bubbleGapMs("x".repeat(500))).toBeGreaterThan(bubbleGapMs("k"));
+  });
+});
+
+describe("no terminal full stops", () => {
+  it("drops the trailing period from a bubble", () => {
+    expect(stripEndPeriod("three hours is brutal.")).toBe("three hours is brutal");
+  });
+  it("keeps ellipsis, question and exclamation marks", () => {
+    expect(stripEndPeriod("hmm...")).toBe("hmm...");
+    expect(stripEndPeriod("wait what??")).toBe("wait what??");
+    expect(stripEndPeriod("that's huge!!!")).toBe("that's huge!!!");
+  });
+  it("leaves Mandarin punctuation alone, it is grammar not voice", () => {
+    expect(stripEndPeriod("你累吗？")).toBe("你累吗？");
+    expect(stripEndPeriod("累死了。")).toBe("累死了。");
+  });
+  it("treats each bubble separately and keeps the separator", () => {
+    expect(stripEndPeriod("first thought.\n---\nsecond thought.")).toBe(
+      "first thought\n---\nsecond thought",
+    );
+  });
+  it("keeps a period between two thoughts inside one bubble", () => {
+    expect(stripEndPeriod("oof. karting day or laptop day?")).toBe("oof. karting day or laptop day?");
+    expect(stripEndPeriod("疯狂 = fēngkuáng, crazy. very much your word")).toBe(
+      "疯狂 = fēngkuáng, crazy. very much your word",
+    );
+  });
+  it("only touches the last line of a teaching block", () => {
+    expect(stripEndPeriod("考过了。\nkǎo guò le.\ni passed the exam.")).toBe(
+      "考过了。\nkǎo guò le.\ni passed the exam",
+    );
   });
 });

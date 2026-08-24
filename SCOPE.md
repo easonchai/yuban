@@ -73,16 +73,22 @@ yuban-app/
   `strength` 1-5, `introduced`, `lastSeen`. Structured so SRS and the web
   app can query it; the model touches it only through tools.
 - **Message** — `learnerId`, `role` (user|assistant), `content`, `ts`.
-  Last 40 fed to the model.
+  Last 40 fed to the model. Stored clean: the `[react:X]` delivery marker is
+  parsed off before the row is written.
+- **Moment** — episodic memory: `text` (one past-tense sentence), `feeling`,
+  `ts`. Things that HAPPENED, as opposed to `profileMd` which holds who they
+  are. Newest 12 ride in the system prompt so she can call back to a real
+  event instead of asking "how was your day" again.
+- **Thread** — open loops: `text` (what she will ask), `askAfter`, `closedAt`.
+  The ping scheduler prefers a due thread over a generic opener.
 - **Code** — single-use activation codes (`YB-XXXXXXXX`), `usedBy`, `usedAt`.
 - **WebSession** — magic-link auth: `token` PK, `learnerId`, `expiresAt`
   (30 days), created via bot `/app`.
 
 ## Tutor engine (port of proven Python behavior)
 
-- System prompt = `persona/persona.md` + mode line + `profileMd` + vocab
-  table rendered as markdown. (A web recent-activity digest is deferred —
-  the web app has no chat surface in v1, so there is no call site for it.)
+- System prompt = `persona/persona.md` + mode line + `profileMd` + recent
+  Moments + open Threads + vocab table rendered as markdown.
 - History: last 40 messages. `max_tokens` 1000, thinking OFF, timeout 60s.
 - **Tools** (now structured, replacing whole-doc rewrite):
   - `update_profile(profile_markdown)` — replaces `profileMd` (About/Level/
@@ -90,6 +96,8 @@ yuban-app/
   - `save_word(word, pinyin, gloss, context)` — upsert into Vocab.
   - `adjust_word(word, delta)` — silent-assessment strength nudge (±1),
     stamps lastSeen.
+  - `remember(text, feeling)` — write one Moment. Events and feelings only.
+  - `follow_up(text, in_days)` — open one Thread to ask about later.
 - Empty-reply guard: if final text empty/`…` → one forced no-tools retry →
   fallback line. A user message NEVER ends in silence.
 - Round-joining with `\n` (the `at.Profile's` concat bug fix).
@@ -107,6 +115,15 @@ Carryover behaviors (all already proven in Python, port exactly):
   plain-text fallback on parse errors.
 - Voice notes: download → STT → echo `🎙️ "..."` → normal pipeline; no STT
   key → ask to type.
+- Photos: download → one vision caption (`deepseek-v4-flash-vision-exp`, or
+  ollama `images:[]` in gemma mode) → fed in as `[photo] <caption>` → normal
+  pipeline. Caption failure degrades to asking what it is.
+- Reactions: she may open a reply with `[react:😂]`; the bot lifts it onto the
+  learner message via setMessageReaction and sends the rest as normal. Only
+  Telegram-listed emoji survive parsing (a bad one is a 400).
+- Timing as personality: a read gap before the typing indicator scaled to
+  their message length (zero for direct questions, they are waiting), and
+  per-bubble gaps scaled to the bubble.
 - `/speak`: extract Mandarin segments (CJK-heavy lines — >40% CJK — whole,
   inline runs bare) → one voice note per segment, hanzi caption, max 6.
 - `/review`: flashcards with inline keyboard — gloss → Show answer →
